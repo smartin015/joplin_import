@@ -67,44 +67,7 @@ def main():
     print("=" * 60)
     print("PHASE 1: Fetching data from Todoist API")
     print("=" * 60)
-    data = fetch_all(args.api_token)
-
-    # Apply filters
-    if args.project_filter:
-        filter_lower = args.project_filter.lower()
-        filtered_projects = {
-            pid: proj
-            for pid, proj in data["projects"].items()
-            if filter_lower in proj.name.lower()
-        }
-        if not filtered_projects:
-            print(f"ERROR: No projects matching '{args.project_filter}' found.")
-            print(f"Available projects: {[p.name for p in data['projects'].values()]}")
-            sys.exit(1)
-
-        valid_project_ids = set(filtered_projects.keys())
-        data["projects"] = filtered_projects
-
-        # Filter sections
-        data["sections"] = {
-            sid: sec
-            for sid, sec in data["sections"].items()
-            if sec.project_id in valid_project_ids
-        }
-
-        # Filter tasks
-        filtered_tasks = {}
-        filtered_order = []
-        for tid in data["task_order"]:
-            entry = data["tasks"].get(tid)
-            if entry and entry["task"].project_id in valid_project_ids:
-                filtered_tasks[tid] = entry
-                filtered_order.append(tid)
-        data["tasks"] = filtered_tasks
-        data["task_order"] = filtered_order
-
-        print(f"Filtered to {len(filtered_projects)} project(s)")
-        print(f"  Tasks remaining: {len(filtered_order)}")
+    data = fetch_all(args.api_token, project_filter=args.project_filter)
 
     # Filter completed tasks unless --include-completed
     if not args.include_completed:

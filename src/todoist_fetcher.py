@@ -2,6 +2,7 @@
 Fetch all relevant data from Todoist API.
 """
 
+import sys
 import requests
 from datetime import datetime, timezone
 from collections.abc import Iterator
@@ -51,9 +52,15 @@ def _collect_pages(paginated: Iterator[list]) -> list:
     return result
 
 
-def fetch_all(api_token: str) -> dict:
+def fetch_all(api_token: str, project_filter: str | None = None) -> dict:
     """
     Fetch all data from Todoist and return a structured dict.
+
+    Args:
+        api_token: Todoist API token.
+        project_filter: If set, only fetch projects whose name contains
+                        this string (case-insensitive), plus their sections
+                        and tasks.
 
     Returns:
         {
@@ -64,7 +71,7 @@ def fetch_all(api_token: str) -> dict:
                 {
                     "task": Task,
                     "comments": [Comment],
-                    "attachments": [(Attachment, bytes)],  # (attachment, file_data)
+                    "attachments": [(Attachment, bytes)],
                 },
             "task_order": list of task ids in dependency order (parents before children),
         }
@@ -73,16 +80,37 @@ def fetch_all(api_token: str) -> dict:
 
     print("Fetching projects...")
     projects = {}
-    for page in api.get_projects():
-        for p in page:
-            projects[p.id] = p
+    if project_filter:
+        for page in api.search_projects(query=project_filter):
+            for p in page:
+                projects[p.id] = p
+    else:
+        for page in api.get_projects():
+            for p in page:
+                projects[p.id] = p
     print(f"  Got {len(projects)} projects")
+
+    if project_filter and not projects:
+        # Do a full fetch to report available project names
+        all_projects = {}
+        for page in api.get_projects():
+            for p in page:
+                all_projects[p.id] = p
+        print(f"  ERROR: No projects matching '{project_filter}' found.")
+        print(f"  Available projects: {[p.name for p in all_projects.values()]}")
+        sys.exit(1)
 
     print("Fetching sections...")
     sections = {}
-    for page in api.get_sections():
-        for s in page:
-            sections[s.id] = s
+    if project_filter:
+        for pid in projects:
+            for page in api.get_sections(project_id=pid):
+                for s in page:
+                    sections[s.id] = s
+    else:
+        for page in api.get_sections():
+            for s in page:
+                sections[s.id] = s
     print(f"  Got {len(sections)} sections")
 
     print("Fetching labels...")
@@ -93,7 +121,12 @@ def fetch_all(api_token: str) -> dict:
     print(f"  Got {len(labels)} labels")
 
     print("Fetching tasks...")
-    all_tasks = _collect_pages(api.get_tasks())
+    all_tasks = []
+    if project_filter:
+        for pid in projects:
+            all_tasks.extend(_collect_pages(api.get_tasks(project_id=pid)))
+    else:
+        all_tasks = _collect_pages(api.get_tasks())
     print(f"  Got {len(all_tasks)} tasks")
 
     # Build task map and parent→children relationship
