@@ -109,24 +109,47 @@ def fetch_all(api_token: str, project_filter: str | None = None) -> dict:
     print("Fetching projects...")
     projects = {}
     if project_filter:
+        # Find projects whose name matches the filter
         for page in api.search_projects(query=project_filter):
             for p in page:
                 projects[p.id] = p
+
+        if not projects:
+            all_projects = {}
+            for page in api.get_projects():
+                for p in page:
+                    all_projects[p.id] = p
+            print(f"  ERROR: No projects matching '{project_filter}' found.")
+            print(f"  Available projects: {[p.name for p in all_projects.values()]}")
+            sys.exit(1)
+
+        matched_count = len(projects)
+
+        # Pull in all descendant sub-projects recursively
+        all_projects = {}
+        for page in api.get_projects():
+            for p in page:
+                all_projects[p.id] = p
+
+        parent_ids = set(projects.keys())
+        while True:
+            new_children = {}
+            for pid, proj in all_projects.items():
+                if proj.parent_id and proj.parent_id in parent_ids and pid not in projects:
+                    new_children[pid] = proj
+            if not new_children:
+                break
+            projects.update(new_children)
+            parent_ids |= set(new_children.keys())
+
+        child_count = len(projects) - matched_count
+        if child_count > 0:
+            print(f"  (includes {child_count} sub-project(s))")
     else:
         for page in api.get_projects():
             for p in page:
                 projects[p.id] = p
     print(f"  Got {len(projects)} projects")
-
-    if project_filter and not projects:
-        # Do a full fetch to report available project names
-        all_projects = {}
-        for page in api.get_projects():
-            for p in page:
-                all_projects[p.id] = p
-        print(f"  ERROR: No projects matching '{project_filter}' found.")
-        print(f"  Available projects: {[p.name for p in all_projects.values()]}")
-        sys.exit(1)
 
     print("Fetching sections...")
     sections = {}
