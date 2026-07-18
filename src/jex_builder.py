@@ -71,6 +71,8 @@ class JexNote:
             f"todo_completed: {self.todo_completed}",
             f"created_time: {self.created_time}",
             f"updated_time: {self.updated_time}",
+            f"user_created_time: {self.created_time}",
+            f"user_updated_time: {self.updated_time}",
         ]
 
         if self.source_url:
