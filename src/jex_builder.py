@@ -6,7 +6,7 @@ JEX is a .tar file containing:
   {uuid}.md               # Folder files (type_: 2)
   {uuid}.md               # Resource metadata files (type_: 4)
   {uuid}.md               # Tag files (type_: 5)
-  {uuid}.md               # Note-Tag association files (type_: 6)
+  {uuid}_{uuid}.md        # Note-Tag association files (type_: 6)
   resources/{uuid}.{ext}  # Binary resource files
 
 Each .md file has:
@@ -14,7 +14,7 @@ Each .md file has:
   (blank line)
   Body (markdown, for notes)
   (blank line)
-  key: value pairs (metadata)
+  key: value pairs (metadata) — timestamps are ISO 8601 strings
   type_: N (last line)
 """
 
@@ -23,8 +23,24 @@ import tarfile
 import uuid
 import time
 import io
+from datetime import datetime, timezone
 from typing import Optional
 from dataclasses import dataclass
+
+
+def _ts_to_iso(ts: int) -> str:
+    """Convert a Unix timestamp (seconds) to Joplin ISO 8601 format.
+
+    Joplin uses strings like: 2026-05-02T23:50:54.769Z
+    Our converter produces Unix epoch ints, so we format them here.
+    """
+    if ts <= 0:
+        return ""
+    try:
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        return dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    except (ValueError, OSError, OverflowError):
+        return ""
 
 
 def _safe_int(val, default: int = 0) -> int:
@@ -49,8 +65,8 @@ class JexNote:
     is_todo: int = 1
     todo_due: int = 0           # Unix timestamp, 0 = no due date
     todo_completed: int = 0     # Unix timestamp, 0 = not completed
-    created_time: int = 0       # Unix timestamp
-    updated_time: int = 0       # Unix timestamp
+    created_time: int = 0       # Unix timestamp (seconds)
+    updated_time: int = 0       # Unix timestamp (seconds)
     source_url: str = ""
     latitude: float = 0.0
     longitude: float = 0.0
@@ -59,10 +75,9 @@ class JexNote:
     source: str = ""
     source_application: str = ""
     markup_language: int = 1    # 1 = Markdown
-    is_locked: int = 0
     is_shared: int = 0
     application_data: str = ""
-    note_id: Optional[str] = None  # If None, a UUID is generated
+    note_id: Optional[str] = None
 
     def get_id(self) -> str:
         if self.note_id is None:
@@ -70,53 +85,46 @@ class JexNote:
         return self.note_id
 
     def serialize(self) -> str:
-        """Serialize to the JEX .md format."""
+        """Serialize to JEX .md format matching Joplin's own export."""
         lines = [self.title, ""]
         if self.body:
             lines.append(self.body)
             lines.append("")
 
-        # Guard against NaN / None / non-integer values sneaking into timestamps
         ct = _safe_int(self.created_time)
         ut = _safe_int(self.updated_time)
-        dd = _safe_int(self.todo_due)
-        dc = _safe_int(self.todo_completed)
 
         props = [
             f"id: {self.get_id()}",
             f"parent_id: {self.parent_id or ''}",
+            f"created_time: {_ts_to_iso(ct)}",
+            f"updated_time: {_ts_to_iso(ut)}",
+            "is_conflict: 0",
+            f"latitude: {self.latitude:.7f}",
+            f"longitude: {self.longitude:.7f}",
+            f"altitude: {self.altitude:.4f}",
+            f"author: {self.author}",
+            f"source_url: {self.source_url}",
             f"is_todo: {_safe_int(self.is_todo)}",
-            f"todo_due: {dd}",
-            f"todo_completed: {dc}",
-            f"created_time: {ct}",
-            f"updated_time: {ut}",
-            f"user_created_time: {ct}",
-            f"user_updated_time: {ut}",
-        ]
-
-        if self.source_url:
-            props.append(f"source_url: {self.source_url}")
-        if self.latitude:
-            props.append(f"latitude: {self.latitude}")
-        if self.longitude:
-            props.append(f"longitude: {self.longitude}")
-        if self.altitude:
-            props.append(f"altitude: {self.altitude}")
-        if self.author:
-            props.append(f"author: {self.author}")
-        if self.source:
-            props.append(f"source: {self.source}")
-        if self.source_application:
-            props.append(f"source_application: {self.source_application}")
-        if self.application_data:
-            props.append(f"application_data: {self.application_data}")
-
-        props.extend([
-            f"markup_language: {self.markup_language}",
-            f"is_locked: {self.is_locked}",
-            f"is_shared: {self.is_shared}",
+            f"todo_due: {_safe_int(self.todo_due)}",
+            f"todo_completed: {_safe_int(self.todo_completed)}",
+            f"source: {self.source}",
+            f"source_application: {self.source_application}",
+            f"application_data: {self.application_data}",
+            "order: 0",
+            f"user_created_time: {_ts_to_iso(ct)}",
+            f"user_updated_time: {_ts_to_iso(ut)}",
+            "encryption_cipher_text: ",
+            "encryption_applied: 0",
+            f"markup_language: {_safe_int(self.markup_language)}",
+            f"is_shared: {_safe_int(self.is_shared)}",
+            "share_id: ",
+            "conflict_original_id: ",
+            "master_key_id: ",
+            "user_data: ",
+            "deleted_time: 0",
             "type_: 1",
-        ])
+        ]
 
         lines.append("\n".join(props))
         return "\n".join(lines)
@@ -142,9 +150,9 @@ class JexFolder:
         props = [
             f"id: {self.get_id()}",
             f"parent_id: {self.parent_id}",
-            f"created_time: {self.created_time}",
-            f"updated_time: {self.updated_time}",
-            f"is_shared: {self.is_shared}",
+            f"created_time: {_ts_to_iso(_safe_int(self.created_time))}",
+            f"updated_time: {_ts_to_iso(_safe_int(self.updated_time))}",
+            f"is_shared: {_safe_int(self.is_shared)}",
             "type_: 2",
         ]
         lines.append("\n".join(props))
@@ -168,8 +176,8 @@ class JexTag:
         lines = [self.title, ""]
         props = [
             f"id: {self.get_id()}",
-            f"created_time: {self.created_time}",
-            f"updated_time: {self.updated_time}",
+            f"created_time: {_ts_to_iso(_safe_int(self.created_time))}",
+            f"updated_time: {_ts_to_iso(_safe_int(self.updated_time))}",
             "type_: 5",
         ]
         lines.append("\n".join(props))
@@ -216,7 +224,6 @@ class JexResource:
     def serialize_metadata(self) -> str:
         """Serialize the resource metadata .md file."""
         title = self.title or self.filename
-        # Extract extension
         _, ext = os.path.splitext(self.filename)
         size = len(self.data)
 
@@ -228,7 +235,7 @@ class JexResource:
             f"size: {size}",
             f"title: {title}",
             f"file_extension: {ext}",
-            f"created_time: {self.created_time}",
+            f"created_time: {_ts_to_iso(_safe_int(self.created_time))}",
             "type_: 4",
         ]
         lines.append("\n".join(props))
@@ -236,7 +243,6 @@ class JexResource:
 
     def get_resource_filename(self) -> str:
         """Get the filename used for the binary blob in resources/."""
-        # Joplin stores resources as resources/{uuid}.{ext}
         _, ext = os.path.splitext(self.filename)
         return f"{self.get_id()}{ext}"
 
@@ -252,29 +258,24 @@ class JexArchive:
         self.resources: list[JexResource] = []
 
     def add_folder(self, folder: JexFolder) -> str:
-        """Add a folder. Returns its UUID."""
         fid = folder.get_id()
         self.folders.append(folder)
         return fid
 
     def add_note(self, note: JexNote) -> str:
-        """Add a note. Returns its UUID."""
         nid = note.get_id()
         self.notes.append(note)
         return nid
 
     def add_tag(self, tag: JexTag) -> str:
-        """Add a tag. Returns its UUID."""
         tid = tag.get_id()
         self.tags.append(tag)
         return tid
 
     def add_note_tag(self, note_id: str, tag_id: str):
-        """Link a note to a tag."""
         self.note_tags.append(JexNoteTag(note_id=note_id, tag_id=tag_id))
 
     def add_resource(self, resource: JexResource) -> str:
-        """Add a resource (attachment). Returns its UUID."""
         rid = resource.get_id()
         self.resources.append(resource)
         return rid
@@ -282,7 +283,6 @@ class JexArchive:
     def write(self, output_path: str):
         """Write the JEX archive (tar file) to output_path."""
         with tarfile.open(output_path, "w") as tar:
-            # Write folders
             for folder in self.folders:
                 content = folder.serialize().encode("utf-8")
                 info = tarfile.TarInfo(name=f"{folder.get_id()}.md")
@@ -290,7 +290,6 @@ class JexArchive:
                 info.mtime = folder.updated_time or int(time.time())
                 tar.addfile(info, io.BytesIO(content))
 
-            # Write notes
             for note in self.notes:
                 content = note.serialize().encode("utf-8")
                 info = tarfile.TarInfo(name=f"{note.get_id()}.md")
@@ -298,7 +297,6 @@ class JexArchive:
                 info.mtime = note.updated_time or int(time.time())
                 tar.addfile(info, io.BytesIO(content))
 
-            # Write tags
             for tag in self.tags:
                 content = tag.serialize().encode("utf-8")
                 info = tarfile.TarInfo(name=f"{tag.get_id()}.md")
@@ -306,7 +304,6 @@ class JexArchive:
                 info.mtime = tag.updated_time or int(time.time())
                 tar.addfile(info, io.BytesIO(content))
 
-            # Write note-tag associations
             for nt in self.note_tags:
                 content = nt.serialize().encode("utf-8")
                 info = tarfile.TarInfo(name=nt.get_filename())
@@ -314,16 +311,13 @@ class JexArchive:
                 info.mtime = int(time.time())
                 tar.addfile(info, io.BytesIO(content))
 
-            # Write resource metadata + blobs
             for res in self.resources:
-                # Metadata .md file
                 content = res.serialize_metadata().encode("utf-8")
                 info = tarfile.TarInfo(name=f"{res.get_id()}.md")
                 info.size = len(content)
                 info.mtime = res.created_time or int(time.time())
                 tar.addfile(info, io.BytesIO(content))
 
-                # Binary blob
                 res_filename = f"resources/{res.get_resource_filename()}"
                 info = tarfile.TarInfo(name=res_filename)
                 info.size = len(res.data)
