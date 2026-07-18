@@ -4,6 +4,7 @@ Fetch all relevant data from Todoist API.
 
 import requests
 from datetime import datetime, timezone
+from collections.abc import Iterator
 from typing import Optional
 from todoist_api_python.api import TodoistAPI
 from todoist_api_python.models import Task, Project, Section, Comment, Label, Attachment
@@ -42,6 +43,14 @@ def _mime_from_filename(filename: str) -> str:
     return mime or "application/octet-stream"
 
 
+def _collect_pages(paginated: Iterator[list]) -> list:
+    """Flatten a paginated API response (Iterator[list[X]]) into a single list."""
+    result = []
+    for page in paginated:
+        result.extend(page)
+    return result
+
+
 def fetch_all(api_token: str) -> dict:
     """
     Fetch all data from Todoist and return a structured dict.
@@ -51,7 +60,7 @@ def fetch_all(api_token: str) -> dict:
             "projects": {id: Project},
             "sections": {id: Section},
             "labels": {id: Label},
-            "tasks": list of enriched task dicts:
+            "tasks": dict of enriched task dicts:
                 {
                     "task": Task,
                     "comments": [Comment],
@@ -63,19 +72,28 @@ def fetch_all(api_token: str) -> dict:
     api = TodoistAPI(api_token)
 
     print("Fetching projects...")
-    projects = {p.id: p for p in api.get_projects()}
+    projects = {}
+    for page in api.get_projects():
+        for p in page:
+            projects[p.id] = p
     print(f"  Got {len(projects)} projects")
 
     print("Fetching sections...")
-    sections = {s.id: s for s in api.get_sections()}
+    sections = {}
+    for page in api.get_sections():
+        for s in page:
+            sections[s.id] = s
     print(f"  Got {len(sections)} sections")
 
     print("Fetching labels...")
-    labels = {l.id: l for l in api.get_labels()}
+    labels = {}
+    for page in api.get_labels():
+        for l in page:
+            labels[l.id] = l
     print(f"  Got {len(labels)} labels")
 
     print("Fetching tasks...")
-    all_tasks = api.get_tasks()
+    all_tasks = _collect_pages(api.get_tasks())
     print(f"  Got {len(all_tasks)} tasks")
 
     # Build task map and parent→children relationship
@@ -124,24 +142,24 @@ def fetch_all(api_token: str) -> dict:
         attachments = []
 
         try:
-            task_comments = api.get_comments(task_id=task.id)
-            for comment in task_comments:
-                comments.append(comment)
-                total_comments += 1
+            for page in api.get_comments(task_id=task.id):
+                for comment in page:
+                    comments.append(comment)
+                    total_comments += 1
 
-                if comment.attachment:
-                    att = comment.attachment
-                    # Download the file
-                    file_url = att.file_url
-                    if not file_url:
-                        # Some attachments use the url field instead
-                        file_url = getattr(att, 'url', None)
+                    if comment.attachment:
+                        att = comment.attachment
+                        # Download the file
+                        file_url = att.file_url
+                        if not file_url:
+                            # Some attachments use the url field instead
+                            file_url = getattr(att, 'url', None)
 
-                    if file_url:
-                        file_data = _download_file(file_url, api_token)
-                        if file_data:
-                            attachments.append((att, file_data))
-                            total_attachments += 1
+                        if file_url:
+                            file_data = _download_file(file_url, api_token)
+                            if file_data:
+                                attachments.append((att, file_data))
+                                total_attachments += 1
 
         except Exception as e:
             print(f"  WARNING: Failed to fetch comments for task {task.id}: {e}")
