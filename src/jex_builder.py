@@ -215,6 +215,7 @@ class JexResource:
     title: str = ""
     resource_id: Optional[str] = None
     created_time: int = 0
+    updated_time: int = 0
 
     def get_id(self) -> str:
         if self.resource_id is None:
@@ -224,18 +225,38 @@ class JexResource:
     def serialize_metadata(self) -> str:
         """Serialize the resource metadata .md file."""
         title = self.title or self.filename
+        # file_extension without leading dot (Joplin format: "jpg", not ".jpg")
         _, ext = os.path.splitext(self.filename)
+        ext = ext.lstrip(".")
         size = len(self.data)
+        ct = _safe_int(self.created_time)
+        ut = _safe_int(self.updated_time)
 
         lines = [title, ""]
         props = [
             f"id: {self.get_id()}",
-            f"filename: {self.filename}",
             f"mime: {self.mime_type}",
-            f"size: {size}",
-            f"title: {title}",
+            # Joplin often leaves filename empty for resources
+            "filename: ",
+            f"created_time: {_ts_to_iso(ct)}",
+            f"updated_time: {_ts_to_iso(ut)}",
+            f"user_created_time: {_ts_to_iso(ct)}",
+            f"user_updated_time: {_ts_to_iso(ut)}",
             f"file_extension: {ext}",
-            f"created_time: {_ts_to_iso(_safe_int(self.created_time))}",
+            "encryption_cipher_text: ",
+            "encryption_applied: 0",
+            "encryption_blob_encrypted: 0",
+            f"size: {size}",
+            "is_shared: 0",
+            "share_id: ",
+            "master_key_id: ",
+            "user_data: ",
+            "blob_updated_time: 0",
+            "ocr_text: ",
+            "ocr_details: ",
+            "ocr_status: 0",
+            "ocr_error: ",
+            "ocr_driver_id: 0",
             "type_: 4",
         ]
         lines.append("\n".join(props))

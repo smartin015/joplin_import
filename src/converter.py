@@ -212,6 +212,7 @@ def convert(data: dict) -> tuple[JexArchive, dict, dict]:
                 title=att.title or filename,
                 resource_id=_make_uuid(f"{task.id}-{att.file_name}-{att.file_size}"),
                 created_time=_to_unix(task.created_at),
+                updated_time=_to_unix(task.updated_at),
             )
             rid = archive.add_resource(res)
 
