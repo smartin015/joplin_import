@@ -15,15 +15,64 @@ from .recurrence_parser import RecurrenceData, parse_recurrence
 
 
 def _to_unix(dt) -> int:
-    """Convert an ApiDate/ApiDue (date or datetime) to Unix timestamp."""
+    """Convert a Todoist date/datetime/string/int to a Unix timestamp in SECONDS.
+
+    Handles every format the Todoist API may return:
+      - datetime objects        → .timestamp()
+      - date objects            → via .year/.month/.day
+      - ISO 8601 strings        → parsed
+      - epoch millisecond ints  → divided by 1000
+      - epoch second ints       → passed through
+      - None / junk             → 0
+
+    Never returns NaN, None, or negative values.
+    """
     if dt is None:
         return 0
+
+    # --- datetime (most common from todoist-api-python v2+) ---
     if isinstance(dt, datetime):
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        return int(dt.timestamp())
-    d = datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc)
-    return int(d.timestamp())
+        return max(0, int(dt.timestamp()))
+
+    # --- raw numbers: could be seconds or milliseconds ---
+    if isinstance(dt, (int, float)):
+        try:
+            val = int(dt)
+        except (ValueError, OverflowError):
+            return 0
+        # Heuristic: timestamps >= 1e12 (~year 33658) are milliseconds
+        if val >= 1_000_000_000_000:
+            val //= 1000
+        return max(0, val)
+
+    # --- ISO 8601 string ---
+    if isinstance(dt, str):
+        try:
+            s = dt.replace("Z", "+00:00")
+            parsed = datetime.fromisoformat(s)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return max(0, int(parsed.timestamp()))
+        except (ValueError, AttributeError):
+            return 0
+
+    # --- date objects, ApiDate, and other types with .year/.month/.day ---
+    try:
+        d = datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc)
+        return max(0, int(d.timestamp()))
+    except (AttributeError, TypeError):
+        pass
+
+    # --- PatternBase (dataclass-wizard opaque type from older todoist-api-python) ---
+    # Try .timestamp() as a last resort
+    try:
+        return max(0, int(dt.timestamp()))
+    except (AttributeError, TypeError, ValueError):
+        pass
+
+    return 0
 
 
 # Deterministic UUID generation from Todoist IDs

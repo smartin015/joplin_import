@@ -12,16 +12,44 @@ from todoist_api_python.models import Task, Project, Section, Comment, Label, At
 
 
 def _to_unix(dt) -> int:
-    """Convert an ApiDate/ApiDue (date or datetime) to Unix timestamp."""
+    """Convert a Todoist date/datetime/string/int to a Unix timestamp in SECONDS.
+
+    Handles datetime, date, ISO strings, millisecond ints, and None.
+    Never returns NaN, None, or negative values.
+    """
     if dt is None:
         return 0
     if isinstance(dt, datetime):
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        return int(dt.timestamp())
-    # It's a date object
-    d = datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc)
-    return int(d.timestamp())
+        return max(0, int(dt.timestamp()))
+    if isinstance(dt, (int, float)):
+        try:
+            val = int(dt)
+        except (ValueError, OverflowError):
+            return 0
+        if val >= 1_000_000_000_000:
+            val //= 1000
+        return max(0, val)
+    if isinstance(dt, str):
+        try:
+            s = dt.replace("Z", "+00:00")
+            parsed = datetime.fromisoformat(s)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return max(0, int(parsed.timestamp()))
+        except (ValueError, AttributeError):
+            return 0
+    try:
+        d = datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc)
+        return max(0, int(d.timestamp()))
+    except (AttributeError, TypeError):
+        pass
+    try:
+        return max(0, int(dt.timestamp()))
+    except (AttributeError, TypeError, ValueError):
+        pass
+    return 0
 
 
 def _download_file(url: str, token: str) -> Optional[bytes]:

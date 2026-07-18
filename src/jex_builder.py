@@ -27,6 +27,19 @@ from typing import Optional
 from dataclasses import dataclass
 
 
+def _safe_int(val, default: int = 0) -> int:
+    """Coerce a value to int, returning *default* on NaN, None, or junk."""
+    if val is None:
+        return default
+    try:
+        i = int(val)
+        if i != i:  # NaN check (NaN != NaN)
+            return default
+        return i
+    except (ValueError, TypeError, OverflowError):
+        return default
+
+
 @dataclass
 class JexNote:
     """Represents a note (task) in the JEX format."""
@@ -63,16 +76,22 @@ class JexNote:
             lines.append(self.body)
             lines.append("")
 
+        # Guard against NaN / None / non-integer values sneaking into timestamps
+        ct = _safe_int(self.created_time)
+        ut = _safe_int(self.updated_time)
+        dd = _safe_int(self.todo_due)
+        dc = _safe_int(self.todo_completed)
+
         props = [
             f"id: {self.get_id()}",
             f"parent_id: {self.parent_id or ''}",
-            f"is_todo: {self.is_todo}",
-            f"todo_due: {self.todo_due}",
-            f"todo_completed: {self.todo_completed}",
-            f"created_time: {self.created_time}",
-            f"updated_time: {self.updated_time}",
-            f"user_created_time: {self.created_time}",
-            f"user_updated_time: {self.updated_time}",
+            f"is_todo: {_safe_int(self.is_todo)}",
+            f"todo_due: {dd}",
+            f"todo_completed: {dc}",
+            f"created_time: {ct}",
+            f"updated_time: {ut}",
+            f"user_created_time: {ct}",
+            f"user_updated_time: {ut}",
         ]
 
         if self.source_url:
